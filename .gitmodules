@@ -1,0 +1,3 @@
+[submodule "worker/YaneuraOu"]
+	path = worker/YaneuraOu
+	url = https://github.com/yaneurao/YaneuraOu.git

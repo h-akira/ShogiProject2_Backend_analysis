@@ -1,0 +1,36 @@
+version: 0.2
+
+env:
+  parameter-store:
+    DOCKERHUB_USERNAME: /DockerHub/UserName
+    DOCKERHUB_ACCESSTOKEN: /DockerHub/AccessToken
+  variables:
+    REGION: ap-northeast-1
+    ENV: dev
+
+phases:
+  pre_build:
+    commands:
+      # DockerHub authentication
+      - echo "$DOCKERHUB_ACCESSTOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      # Download NNUE eval file
+      - curl -LS -o nn.7z https://github.com/yaneurao/YaneuraOu/releases/download/suisho5/Suisho5.7z
+      - 7z x nn.7z
+      - mkdir -p worker/Engine/eval
+      - mv nn.bin worker/Engine/eval/
+      # Adjust Makefile for Lambda environment (clang++ -> g++, AVX2 -> SSE42)
+      - sed -i 's/^COMPILER = clang++/#COMPILER = clang++/' worker/YaneuraOu/source/Makefile
+      - sed -i 's/^#COMPILER = g++/COMPILER = g++/' worker/YaneuraOu/source/Makefile
+      - sed -i 's/^TARGET_CPU = AVX2/#TARGET_CPU = AVX2/' worker/YaneuraOu/source/Makefile
+      - sed -i 's/^#TARGET_CPU = SSE42/TARGET_CPU = SSE42/' worker/YaneuraOu/source/Makefile
+  build:
+    commands:
+      - sam build
+      - >-
+        sam deploy
+        --no-confirm-changeset
+        --no-fail-on-empty-changeset
+        --resolve-s3
+        --resolve-image-repos
+        --parameter-overrides Env=$ENV
+        --capabilities CAPABILITY_NAMED_IAM

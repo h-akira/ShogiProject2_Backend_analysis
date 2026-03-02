@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: ShogiProject Analysis API
+
+Parameters:
+  Env:
+    Type: String
+    Description: Environment identifier (dev, pro)
+  MaxConcurrency:
+    Type: String
+    Default: "8"
+    Description: Maximum concurrent executions for Worker Lambda
+
+Globals:
+  Function:
+    Runtime: python3.13
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
+      AllowCredentials: false
+
+Resources:
+  AnalysisTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "dynamodb-sgp-${Env}-backend-analysis"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  AnalysisDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "sqs-sgp-${Env}-backend-analysis-dlq.fifo"
+      FifoQueue: true
+
+  AnalysisQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "sqs-sgp-${Env}-backend-analysis.fifo"
+      FifoQueue: true
+      VisibilityTimeout: 120
+      MessageRetentionPeriod: 300
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AnalysisDeadLetterQueue.Arn
+        maxReceiveCount: 2
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !ImportValue
+              Fn::Sub: "sgp-${Env}-infra-CognitoUserPoolArn"
+            Identity:
+              Header: Authorization
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-sgp-${Env}-backend-analysis-api"
+      CodeUri: api/
+      Handler: app.lambda_handler
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref AnalysisTable
+          SQS_QUEUE_URL: !GetAtt AnalysisQueue.QueueUrl
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+              Resource: !GetAtt AnalysisTable.Arn
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt AnalysisQueue.Arn
+      Events:
+        CreateAnalysis:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/analysis/requests
+            Method: POST
+        GetAnalysis:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /api/v1/analysis/requests/{aid}
+            Method: GET
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-sgp-${Env}-backend-analysis-worker"
+      PackageType: Image
+      Timeout: 30
+      MemorySize: 2048
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref AnalysisTable
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !GetAtt AnalysisTable.Arn
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AnalysisQueue.Arn
+            BatchSize: 1
+            ScalingConfig:
+              MaximumConcurrency: !Ref MaxConcurrency
+    Metadata:
+      DockerTag: latest
+      DockerContext: ./worker
+      Dockerfile: Dockerfile
+
+  DlqFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "lambda-sgp-${Env}-backend-analysis-dlq"
+      CodeUri: dlq/
+      Handler: handler.handler
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref AnalysisTable
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !GetAtt AnalysisTable.Arn
+      Events:
+        DLQEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AnalysisDeadLetterQueue.Arn
+            BatchSize: 1
+
+Outputs:
+  ApiGatewayId:
+    Description: API Gateway REST API ID
+    Value: !Ref ApiGateway
+    Export:
+      Name: !Sub "sgp-${Env}-backend-analysis-ApiGatewayId"
+  ApiGatewayStageName:
+    Description: API Gateway stage name
+    Value: Prod
+    Export:
+      Name: !Sub "sgp-${Env}-backend-analysis-ApiGatewayStageName"
