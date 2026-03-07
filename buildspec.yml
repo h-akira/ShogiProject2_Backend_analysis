@@ -6,9 +6,11 @@ env:
     DOCKERHUB_ACCESSTOKEN: /DockerHub/AccessToken
   variables:
     REGION: ap-northeast-1
-    ENV: dev
 
 phases:
+  install:
+    runtime-versions:
+      python: 3.13
   pre_build:
     commands:
       # DockerHub authentication
@@ -28,9 +30,11 @@ phases:
       - sam build
       - >-
         sam deploy
+        --stack-name stack-sgp-${ENV}-backend-analysis
         --no-confirm-changeset
         --no-fail-on-empty-changeset
         --resolve-s3
         --resolve-image-repos
         --parameter-overrides Env=$ENV
         --capabilities CAPABILITY_NAMED_IAM
+        --region ${REGION}
