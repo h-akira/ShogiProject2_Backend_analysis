@@ -12,8 +12,6 @@ Parameters:
     Description: Maximum concurrent executions for Worker Lambda
 
 Globals:
-  Function:
-    Runtime: python3.13
   Api:
     Cors:
       AllowMethods: "'GET,POST,OPTIONS'"
@@ -77,6 +75,7 @@ Resources:
       FunctionName: !Sub "lambda-sgp-${Env}-backend-analysis-api"
       CodeUri: api/
       Handler: app.lambda_handler
+      Runtime: python3.13
       Timeout: 10
       MemorySize: 256
       Environment:
@@ -147,6 +146,7 @@ Resources:
       FunctionName: !Sub "lambda-sgp-${Env}-backend-analysis-dlq"
       CodeUri: dlq/
       Handler: handler.handler
+      Runtime: python3.13
       Timeout: 10
       MemorySize: 128
       Environment:
