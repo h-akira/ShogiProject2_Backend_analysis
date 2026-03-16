@@ -1,6 +1,7 @@
 version: 0.2
 
 env:
+  git-credential-helper: yes
   parameter-store:
     DOCKERHUB_USERNAME: /DockerHub/UserName
     DOCKERHUB_ACCESSTOKEN: /DockerHub/AccessToken
@@ -13,6 +14,9 @@ phases:
       python: 3.13
   pre_build:
     commands:
+      # Fetch git submodules (required for CODEBUILD_CLONE_REF source)
+      - git submodule sync
+      - git submodule update --init
       # DockerHub authentication
       - echo "$DOCKERHUB_ACCESSTOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
       # Download NNUE eval file
