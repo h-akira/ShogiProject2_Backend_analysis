@@ -53,6 +53,11 @@ class ShogiEngine:
     timeout_sec = (movetime + 5000) / 1000
     lines = self._read_until("bestmove", timeout=timeout_sec)
 
+    # Normalize score to sente perspective.
+    # USI engines return scores from the current player's viewpoint.
+    turn = sfen.split()[1]  # 'b' = sente, 'w' = gote
+    sign = -1 if turn == "w" else 1
+
     candidates: dict[int, dict] = {}
     for line in lines:
       match = INFO_PATTERN.search(line)
@@ -63,7 +68,7 @@ class ShogiEngine:
           score = MATE_SCORE if int(score_val) > 0 else -MATE_SCORE
         else:
           score = int(score_val)
-        candidates[rank] = {"rank": rank, "score": score, "pv": pv}
+        candidates[rank] = {"rank": rank, "score": score * sign, "pv": pv}
 
     return sorted(candidates.values(), key=lambda c: c["rank"])
 

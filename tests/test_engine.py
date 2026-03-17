@@ -170,6 +170,54 @@ class TestAnalyzeSuccess:
     assert candidates[2]["score"] == -MATE_SCORE
 
 
+class TestAnalyzeGoteTurn:
+  """Scores should be negated when it is gote's turn (sente perspective)."""
+
+  def test_analyze_gote_turn_cp(self):
+    engine = ShogiEngine("/dummy/path")
+
+    lines = [
+      "info depth 10 seldepth 15 multipv 1 score cp 300 nodes 50000 nps 500000 pv 3a2b 7g7f",
+      "info depth 10 seldepth 14 multipv 2 score cp -100 nodes 50000 nps 500000 pv 8b9b 2f2e",
+      "bestmove 3a2b",
+    ]
+    mock_proc = _mock_popen(lines)
+    engine._proc = mock_proc
+
+    # SFEN with 'w' = gote's turn
+    candidates = engine.analyze(
+      "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2",
+      3000,
+    )
+
+    assert len(candidates) == 2
+    # Engine cp 300 (gote advantage) -> -300 (sente perspective)
+    assert candidates[0]["score"] == -300
+    # Engine cp -100 (sente advantage) -> 100 (sente perspective)
+    assert candidates[1]["score"] == 100
+
+  def test_analyze_gote_turn_mate(self):
+    engine = ShogiEngine("/dummy/path")
+
+    lines = [
+      "info depth 20 seldepth 5 multipv 1 score mate 3 nodes 100 nps 1000 pv 3a2b 7g7f 2b3a",
+      "info depth 20 seldepth 8 multipv 2 score mate -5 nodes 100 nps 1000 pv 8b9b 2f2e 9b8b",
+      "bestmove 3a2b",
+    ]
+    mock_proc = _mock_popen(lines)
+    engine._proc = mock_proc
+
+    candidates = engine.analyze(
+      "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2",
+      3000,
+    )
+
+    # mate 3 from gote's view -> gote can mate -> sente is mated -> -MATE_SCORE
+    assert candidates[0]["score"] == -MATE_SCORE
+    # mate -3 from gote's view -> sente can mate -> sente advantage -> +MATE_SCORE
+    assert candidates[1]["score"] == MATE_SCORE
+
+
 class TestAnalyzeTimeout:
   def test_analyze_timeout(self):
     import time as time_mod
